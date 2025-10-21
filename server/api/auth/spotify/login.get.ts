@@ -5,7 +5,10 @@ const SPOTIFY_SCOPES = [
   'user-read-email',
   'user-read-private',
   'playlist-read-private',
-  'playlist-read-collaborative'
+  'playlist-read-collaborative',
+  'user-library-read',
+  'user-follow-read',
+  'user-top-read'
 ].join(' ')
 
 export default defineEventHandler((event) => {

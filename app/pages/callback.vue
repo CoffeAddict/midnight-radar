@@ -34,6 +34,7 @@ type Status = 'loading' | 'success' | 'error'
 
 const router = useRouter()
 const route = useRoute()
+const auth = useSpotifyAuth()
 const status = ref<Status>('loading')
 const message = ref('Waiting for Spotify authentication...')
 
@@ -51,16 +52,17 @@ const exchangeCode = async (code: string, state: string) => {
       }
     })
 
-    localStorage.setItem('spotifyAccessToken', response.access_token)
-    if (response.refresh_token) {
-      localStorage.setItem('spotifyRefreshToken', response.refresh_token)
-    }
+    auth.setTokens({
+      accessToken: response.access_token,
+      refreshToken: response.refresh_token ?? null,
+      expiresIn: response.expires_in
+    })
 
     status.value = 'success'
     message.value = 'Spotify account connected successfully.'
 
     setTimeout(() => {
-      router.push('/')
+      router.push('/home')
     }, 1500)
   } catch (error: unknown) {
     status.value = 'error'
@@ -87,7 +89,7 @@ onMounted(() => {
 })
 
 const retry = () => {
-  router.push('/')
+  router.push('/login')
 }
 
 const isFetchError = (error: unknown): error is { data?: Record<string, any> } =>
