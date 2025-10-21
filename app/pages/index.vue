@@ -10,13 +10,24 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from '#imports'
 import { useRecommendationEngine } from '~/composables/useRecommendationEngine'
 import type { Recommendation } from '~/composables/useRecommendationEngine'
 
+const router = useRouter()
 const recommendations = ref<Recommendation[]>([])
 const errorMessage = ref<string | null>(null)
 
 onMounted(async () => {
+  const auth = useSpotifyAuth()
+  auth.loadFromStorage()
+  const token = await auth.getValidAccessToken()
+
+  if (!token) {
+    await router.replace('/login')
+    return
+  }
+
   const engine = useRecommendationEngine()
 
   try {
