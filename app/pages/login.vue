@@ -5,18 +5,19 @@
       <p class="text-base text-neutral-300">
         Sign in with Spotify to unlock your personalized Midnight Radar experience.
       </p>
-      <button
+      <Button
         type="button"
-        class="rounded-full bg-emerald-500 px-6 py-2 text-sm font-medium text-neutral-900 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
         @click="login"
       >
         Login with Spotify
-      </button>
+      </Button>
     </div>
   </main>
 </template>
 
 <script setup lang="ts">
+import { Button } from '~/components/ui/button'
+
 definePageMeta({
   middleware: 'guest'
 })
