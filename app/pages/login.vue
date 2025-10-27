@@ -1,17 +1,22 @@
 <template>
-  <main class="flex min-h-screen items-center justify-center bg-neutral-950 text-white px-6">
-    <div class="max-w-xl space-y-6 text-center">
-      <h1 class="text-4xl font-semibold">Midnight Radar</h1>
-      <p class="text-base text-neutral-300">
-        Sign in with Spotify to unlock your personalized Midnight Radar experience.
-      </p>
-      <Button
-        type="button"
-        @click="login"
-      >
-        Login with Spotify
-      </Button>
-    </div>
+  <main class="flex min-h-screen items-center justify-center px-6">
+    <Card class="max-w-xl">
+      <CardHeader class="text-center">
+        <CardTitle class="text-4xl">Midnight Radar</CardTitle>
+        <CardDescription class="text-base">
+          Sign in with Spotify to unlock your personalized Midnight Radar experience.
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="flex justify-center">
+        <Button
+          type="button"
+          size="lg"
+          @click="login"
+        >
+          Login with Spotify
+        </Button>
+      </CardContent>
+    </Card>
   </main>
 </template>
 

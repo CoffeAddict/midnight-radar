@@ -1,29 +1,34 @@
 <template>
-  <section class="flex min-h-screen items-center justify-center bg-neutral-950 text-white px-6">
-    <div class="max-w-lg space-y-4 text-center">
-      <h2 class="text-2xl font-semibold">Finishing Spotify sign in</h2>
-      <p v-if="status === 'loading'" class="text-neutral-300">
-        {{ message }}
-      </p>
-      <p v-else-if="status === 'success'" class="text-emerald-300">
-        {{ message }}
-      </p>
-      <p v-else class="text-rose-300">
-        {{ message }}
-      </p>
-      <p v-if="status === 'success'" class="text-sm text-neutral-400">
-        You will be redirected shortly. If not, <NuxtLink to="/" class="underline">head back home</NuxtLink>.
-      </p>
-      <div v-if="status === 'error'">
-        <button
-          type="button"
-          class="rounded-full bg-emerald-500 px-6 py-2 text-sm font-medium text-neutral-900 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
-          @click="retry"
-        >
-          Try again
-        </button>
-      </div>
-    </div>
+  <section class="flex min-h-screen items-center justify-center px-6">
+    <Card class="max-w-lg">
+      <CardHeader class="text-center">
+        <CardTitle class="text-2xl">Finishing Spotify sign in</CardTitle>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <Alert v-if="status === 'loading'">
+          <AlertDescription>{{ message }}</AlertDescription>
+        </Alert>
+        <Alert v-else-if="status === 'success'" class="border-emerald-500/50 text-emerald-300">
+          <AlertDescription>{{ message }}</AlertDescription>
+        </Alert>
+        <Alert v-else variant="destructive">
+          <AlertDescription>{{ message }}</AlertDescription>
+        </Alert>
+
+        <p v-if="status === 'success'" class="text-sm text-muted-foreground text-center">
+          You will be redirected shortly. If not, <NuxtLink to="/" class="underline">head back home</NuxtLink>.
+        </p>
+
+        <div v-if="status === 'error'" class="flex justify-center">
+          <Button
+            type="button"
+            @click="retry"
+          >
+            Try again
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   </section>
 </template>
 
