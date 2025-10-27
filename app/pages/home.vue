@@ -1,130 +1,138 @@
 <template>
-  <main class="min-h-screen bg-neutral-950 px-6 py-12 text-white">
+  <main class="min-h-screen px-6 py-12">
     <div class="mx-auto flex max-w-3xl flex-col gap-10">
       <header class="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 class="text-4xl font-semibold">Midnight Radar</h1>
-          <p class="text-sm text-neutral-400">Your personalized Spotify insights.</p>
+          <p class="text-sm text-muted-foreground">Your personalized Spotify insights.</p>
         </div>
-        <button
+        <Button
           type="button"
-          class="rounded-full border border-neutral-500 px-4 py-2 text-sm font-medium transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-200"
+          variant="outline"
           @click="handleLogout"
         >
           Logout
-        </button>
+        </Button>
       </header>
 
       <section class="space-y-4">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <button
+          <Button
             type="button"
-            class="rounded-full bg-emerald-500 px-6 py-2 text-sm font-medium text-neutral-900 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 disabled:pointer-events-none disabled:opacity-60"
             :disabled="isLoading"
             @click="fetchSpotifyData()"
           >
             {{ isLoading ? 'Fetching data…' : 'Fetch Spotify data' }}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            class="rounded-full border border-neutral-600 px-6 py-2 text-sm font-medium transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-200 disabled:pointer-events-none disabled:opacity-60"
+            variant="outline"
             :disabled="isLoading"
             @click="fetchSpotifyData(true)"
           >
             {{ isLoading ? 'Refreshing…' : 'Force refresh' }}
-          </button>
+          </Button>
         </div>
-        <p v-if="progressMessage" class="text-sm text-neutral-300">
-          {{ progressMessage }}
-          <span v-if="progressPercent !== null">({{ progressPercent }}%)</span>
-        </p>
-        <p v-if="errorMessage" class="text-sm text-rose-300">{{ errorMessage }}</p>
-        <div v-if="result" class="rounded-lg border border-neutral-800 bg-neutral-900 p-4 text-sm">
-          <p class="mb-2 text-neutral-400">
-            Retrieved {{ result.artists.length }} artists, {{ result.liked_tracks.length }} liked tracks, and
-            {{ result.genres.length }} genres.
-          </p>
-          <ul v-if="topGenres.length" class="mb-3 space-y-1 text-neutral-300">
-            <li v-for="genre in topGenres" :key="genre.name">
-              {{ genre.name }} · {{ genre.score.toFixed(2) }}
-            </li>
-          </ul>
-          <details>
-            <summary class="cursor-pointer text-neutral-300">View raw data</summary>
-            <pre class="mt-4 overflow-x-auto whitespace-pre-wrap text-left text-neutral-200">
+        <Alert v-if="progressMessage">
+          <AlertDescription>
+            {{ progressMessage }}
+            <span v-if="progressPercent !== null">({{ progressPercent }}%)</span>
+          </AlertDescription>
+        </Alert>
+        <Alert v-if="errorMessage" variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{{ errorMessage }}</AlertDescription>
+        </Alert>
+        <Card v-if="result">
+          <CardContent class="pt-6 text-sm">
+            <p class="mb-2 text-muted-foreground">
+              Retrieved {{ result.artists.length }} artists, {{ result.liked_tracks.length }} liked tracks, and
+              {{ result.genres.length }} genres.
+            </p>
+            <ul v-if="topGenres.length" class="mb-3 space-y-1">
+              <li v-for="genre in topGenres" :key="genre.name">
+                {{ genre.name }} · {{ genre.score.toFixed(2) }}
+              </li>
+            </ul>
+            <details>
+              <summary class="cursor-pointer">View raw data</summary>
+              <pre class="mt-4 overflow-x-auto whitespace-pre-wrap text-left text-xs bg-muted p-3 rounded">
 {{ formattedResult }}
-            </pre>
-          </details>
-        </div>
+              </pre>
+            </details>
+          </CardContent>
+        </Card>
         <div class="space-y-3">
-          <button
+          <Button
             type="button"
-            class="rounded-full bg-blue-500 px-6 py-2 text-sm font-medium text-neutral-900 transition hover:bg-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-200 disabled:pointer-events-none disabled:opacity-60"
             :disabled="!existingFingerprint || recommendationsLoading"
             @click="fetchRecommendationsList"
           >
             {{ recommendationsLoading ? 'Generating recommendations…' : 'Get recommendations' }}
-          </button>
-          <p v-if="recommendationsError" class="text-sm text-rose-300">
-            {{ recommendationsError }}
-          </p>
-          <div v-if="recommendations.length" class="space-y-3">
-            <div class="space-y-2">
-              <div class="relative w-full overflow-hidden rounded-lg bg-neutral-900" style="padding-bottom: 56.25%;">
-                <iframe
-                  v-if="youtubeVideo"
-                  class="absolute left-0 top-0 h-full w-full"
-                  :src="`${youtubeVideo.url}?rel=0`"
-                  title="YouTube video player"
-                  frameborder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowfullscreen
-                />
-                <div
-                  v-else-if="youtubeLoading"
-                  class="absolute inset-0 flex items-center justify-center text-neutral-300"
-                >
-                  Loading video…
+          </Button>
+          <Alert v-if="recommendationsError" variant="destructive">
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{{ recommendationsError }}</AlertDescription>
+          </Alert>
+          <Card v-if="recommendations.length">
+            <CardContent class="pt-6 space-y-3">
+              <div class="space-y-2">
+                <div class="relative w-full overflow-hidden rounded-lg bg-muted" style="padding-bottom: 56.25%;">
+                  <iframe
+                    v-if="youtubeVideo"
+                    class="absolute left-0 top-0 h-full w-full"
+                    :src="`${youtubeVideo.url}?rel=0`"
+                    title="YouTube video player"
+                    frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen
+                  />
+                  <div
+                    v-else-if="youtubeLoading"
+                    class="absolute inset-0 flex items-center justify-center"
+                  >
+                    Loading video…
+                  </div>
+                  <div
+                    v-else-if="youtubeError"
+                    class="absolute inset-0 flex items-center justify-center text-destructive text-sm text-center px-4"
+                  >
+                    {{ youtubeError }}
+                  </div>
+                  <div
+                    v-else
+                    class="absolute inset-0 flex items-center justify-center text-muted-foreground"
+                  >
+                    Select a recommendation to view.
+                  </div>
                 </div>
-                <div
-                  v-else-if="youtubeError"
-                  class="absolute inset-0 flex items-center justify-center text-rose-300 text-sm text-center px-4"
-                >
-                  {{ youtubeError }}
-                </div>
-                <div
-                  v-else
-                  class="absolute inset-0 flex items-center justify-center text-neutral-400"
-                >
-                  Select a recommendation to view.
+                <div v-if="currentRecommendation" class="space-y-1">
+                  <h2 class="text-xl font-semibold">
+                    {{ currentRecommendation.title }} ({{ currentRecommendation.genre }})
+                  </h2>
+                  <p class="text-muted-foreground">{{ currentRecommendation.artist }}</p>
                 </div>
               </div>
-              <div v-if="currentRecommendation" class="space-y-1">
-                <h2 class="text-xl font-semibold">
-                  {{ currentRecommendation.title }} ({{ currentRecommendation.genre }})
-                </h2>
-                <p class="text-neutral-400">{{ currentRecommendation.artist }}</p>
+              <div class="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  :disabled="recommendationsLoading || youtubeLoading || !recommendations.length"
+                  @click="showPreviousRecommendation"
+                >
+                  Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  :disabled="recommendationsLoading || youtubeLoading || !recommendations.length"
+                  @click="showNextRecommendation"
+                >
+                  Next
+                </Button>
               </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <button
-                type="button"
-                class="rounded-full border border-neutral-600 px-4 py-2 text-sm font-medium transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-200 disabled:pointer-events-none disabled:opacity-60"
-                :disabled="recommendationsLoading || youtubeLoading || !recommendations.length"
-                @click="showPreviousRecommendation"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                class="rounded-full border border-neutral-600 px-4 py-2 text-sm font-medium transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-200 disabled:pointer-events-none disabled:opacity-60"
-                :disabled="recommendationsLoading || youtubeLoading || !recommendations.length"
-                @click="showNextRecommendation"
-              >
-                Next
-              </button>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       </section>
     </div>
