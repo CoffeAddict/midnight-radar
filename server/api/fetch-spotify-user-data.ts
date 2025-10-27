@@ -12,8 +12,15 @@ interface SpotifySavedTrack {
   track: {
     id: string
     name: string
-    external_ids?: Record<string, string>
-    artists?: Array<{ id?: string; name?: string }>
+    artists?: Array<{
+      id?: string
+      name: string
+    }>
+    album?: {
+      id: string
+      name: string
+      release_date: string
+    }
   } | null
   added_at?: string
 }
@@ -49,8 +56,15 @@ interface SpotifyArtistsBatchResponse {
 interface LikedTrack {
   id: string
   name: string
-  external_ids?: Record<string, string>
-  artist: string
+  artists: Array<{
+    id?: string
+    name: string
+  }>
+  album?: {
+    id: string
+    name: string
+    release_date: string
+  }
   added_at?: string
 }
 
@@ -247,13 +261,15 @@ const fetchAllLikedTracks = async (
 
       const weight = computeRecencyWeight(item.added_at)
 
-      const primaryArtist = item.track.artists?.[0]?.name ?? 'Unknown artist'
-
       likedTracks.push({
         id: item.track.id,
         name: item.track.name,
-        external_ids: item.track.external_ids,
-        artist: primaryArtist,
+        artists: item.track.artists ?? [],
+        album: item.track.album ? {
+          id: item.track.album.id,
+          name: item.track.album.name,
+          release_date: item.track.album.release_date
+        } : undefined,
         added_at: item.added_at
       })
 
