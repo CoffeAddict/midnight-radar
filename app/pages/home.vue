@@ -60,6 +60,19 @@
 {{ formattedResult }}
               </pre>
             </details>
+            <div v-if="existingFingerprint" class="mt-3 flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                @click="downloadFingerprintJson"
+              >
+                Download Fingerprint JSON
+              </Button>
+              <span class="text-xs text-muted-foreground">
+                ({{ fingerprintJsonSize }})
+              </span>
+            </div>
           </CardContent>
         </Card>
         <div class="space-y-3">
@@ -191,6 +204,35 @@ const formattedResult = computed(() =>
 )
 const topGenres = computed(() => (result.value ? result.value.genres.slice(0, 5) : []))
 const recommendationEngine = useRecommendationEngine()
+
+// Fingerprint JSON download
+const fingerprintJsonSize = computed(() => {
+  if (!existingFingerprint.value) return ''
+  const jsonString = JSON.stringify(existingFingerprint.value)
+  const bytes = new Blob([jsonString]).size
+  if (bytes < 1024) return `${bytes} bytes`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+})
+
+const downloadFingerprintJson = () => {
+  if (!existingFingerprint.value) return
+
+  try {
+    const jsonString = JSON.stringify(existingFingerprint.value, null, 2)
+    const blob = new Blob([jsonString], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `midnight-radar-fingerprint-${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('Failed to download fingerprint JSON', error)
+  }
+}
 
 interface SpotifyProfile {
   displayName: string
