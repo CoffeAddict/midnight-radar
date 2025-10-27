@@ -1,18 +1,9 @@
 <template>
   <main class="min-h-screen px-6 py-12">
     <div class="mx-auto flex max-w-3xl flex-col gap-10">
-      <header class="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 class="text-4xl font-semibold">Midnight Radar</h1>
-          <p class="text-sm text-muted-foreground">Your personalized Spotify insights.</p>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          @click="handleLogout"
-        >
-          Logout
-        </Button>
+      <header>
+        <h1 class="text-4xl font-semibold">Midnight Radar</h1>
+        <p class="text-sm text-muted-foreground">Your personalized Spotify insights.</p>
       </header>
 
       <section class="space-y-4">
@@ -357,11 +348,6 @@ const fetchSpotifyData = async (force = false) => {
   } finally {
     isLoading.value = false
   }
-}
-
-const handleLogout = () => {
-  auth.logout()
-  router.push('/login')
 }
 
 const fetchRecommendationsList = async () => {
