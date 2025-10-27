@@ -1,7 +1,8 @@
 <template>
-  <main class="container mx-auto py-12">
-    <div class="space-y-8">
-      <h1 class="text-2xl font-bold">Shadcn-Vue Components</h1>
+  <main class="min-h-screen bg-background text-foreground">
+    <div class="container mx-auto py-12">
+      <div class="space-y-8">
+        <h1 class="text-2xl font-bold">Shadcn-Vue Components</h1>
 
       <div class="space-y-4">
         <h2 class="text-xl font-semibold">Card</h2>
@@ -45,6 +46,7 @@
           </AlertDescription>
         </Alert>
       </div>
+    </div>
     </div>
   </main>
 </template>
