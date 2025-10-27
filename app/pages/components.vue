@@ -25,6 +25,18 @@
       </div>
 
       <div class="space-y-4">
+        <h2 class="text-xl font-semibold">Button</h2>
+        <div class="flex gap-4">
+          <Button>Default</Button>
+          <Button variant="secondary">Secondary</Button>
+          <Button variant="destructive">Destructive</Button>
+          <Button variant="outline">Outline</Button>
+          <Button variant="ghost">Ghost</Button>
+          <Button variant="link">Link</Button>
+        </div>
+      </div>
+
+      <div class="space-y-4">
         <h2 class="text-xl font-semibold">Alert</h2>
         <Alert>
           <AlertTitle>Heads up!</AlertTitle>
@@ -40,5 +52,6 @@
 <script setup lang="ts">
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '~/components/ui/card'
 import { Input } from '~/components/ui/input'
+import { Button } from '~/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '~/components/ui/alert'
 </script>

@@ -5,6 +5,17 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ['@nuxtjs/tailwindcss', 'shadcn-nuxt'],
   css: ['~/assets/css/tailwind.css'],
+  components: [
+    {
+      path: '~/components/ui',
+      extensions: ['.vue'],
+      pathPrefix: false,
+    },
+    {
+      path: '~/components',
+      pathPrefix: false,
+    }
+  ],
   runtimeConfig: {
     spotifyClientId: process.env.NUXT_SPOTIFY_CLIENT_ID || '',
     spotifyClientSecret: process.env.NUXT_SPOTIFY_CLIENT_SECRET || '',
@@ -19,7 +30,7 @@ export default defineNuxtConfig({
      * Directory that the component lives in.
      * @default "./components/ui"
      */
-    componentDir: './components/ui'
+    componentDir: './app/components/ui'
   },
   devServer: {
     host: '::'
