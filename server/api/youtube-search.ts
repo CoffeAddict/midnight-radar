@@ -45,14 +45,27 @@ interface YouTubeInitialData {
 }
 
 export default defineEventHandler(async (event) => {
-  const { song, artist } = getQuery(event)
+  const { song, artist, album, release_date } = getQuery(event)
 
   if (!song || !artist || typeof song !== 'string' || typeof artist !== 'string') {
     setResponseStatus(event, 400)
     return { error: 'Missing song or artist query parameter.' }
   }
 
-  const query = `${song} ${artist} official audio`
+  // Build query in format: "{artist} - {track} - {album} - {release_year}"
+  let query = `${artist} - ${song}`
+
+  if (album && typeof album === 'string') {
+    query += ` - ${album}`
+  }
+
+  if (release_date && typeof release_date === 'string') {
+    const year = release_date.split('-')[0]
+    if (year) {
+      query += ` - ${year}`
+    }
+  }
+
   const url = new URL(YOUTUBE_SEARCH_URL)
   url.searchParams.set('search_query', query)
 
