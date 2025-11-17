@@ -120,6 +120,7 @@ export const useYouTubePlayer = () => {
       player.value = new window.YT.Player(elementId, {
         videoId,
         playerVars: {
+          autoplay: 1, // Autoplay video
           rel: 0, // Don't show related videos
           modestbranding: 1, // Minimal YouTube branding
           fs: 1, // Allow fullscreen
