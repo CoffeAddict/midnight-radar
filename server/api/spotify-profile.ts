@@ -16,11 +16,15 @@ export default defineEventHandler(async (event) => {
   const accessToken = authorization.replace(/^Bearer\s+/i, '').trim()
 
   try {
-    const response = await fetch('https://api.spotify.com/v1/me', {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
+    const response = await rateLimitedFetch(
+      RateLimitConfigs.SPOTIFY,
+      'https://api.spotify.com/v1/me',
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
       }
-    })
+    )
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null)

@@ -1,18 +1,9 @@
 <template>
   <main class="min-h-screen px-6 py-12">
     <div class="mx-auto flex max-w-3xl flex-col gap-10">
-      <header class="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 class="text-4xl font-semibold">Midnight Radar</h1>
-          <p class="text-sm text-muted-foreground">Your personalized Spotify insights.</p>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          @click="handleLogout"
-        >
-          Logout
-        </Button>
+      <header>
+        <h1 class="text-4xl font-semibold">Midnight Radar</h1>
+        <p class="text-sm text-muted-foreground">Your personalized Spotify insights.</p>
       </header>
 
       <section class="space-y-4">
@@ -32,6 +23,21 @@
           >
             {{ isLoading ? 'Refreshing…' : 'Force refresh' }}
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            :disabled="isLoading || progressStage === 'quick_recommendations'"
+            @click="rebuildQuickRecommendations()"
+          >
+            {{ progressStage === 'quick_recommendations' ? 'Building…' : 'Rebuild Quick Recs' }}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            @click="handleClearCache()"
+          >
+            Clear Cache
+          </Button>
         </div>
         <Alert v-if="progressMessage">
           <AlertDescription>
@@ -39,6 +45,34 @@
             <span v-if="progressPercent !== null">({{ progressPercent }}%)</span>
           </AlertDescription>
         </Alert>
+
+        <!-- Quick Recommendation Pool Progress -->
+        <Card v-if="quickRecsProgress.total > 0 && isLoading" class="border-primary">
+          <CardContent class="pt-6">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between text-sm">
+                <span class="font-medium">Quick Recommendations Pool</span>
+                <span class="text-muted-foreground">
+                  {{ quickRecsProgress.current }}/{{ quickRecsProgress.total }} artists
+                </span>
+              </div>
+              <div v-if="quickRecsProgress.artist" class="text-sm text-muted-foreground">
+                Processing: <span class="font-medium text-foreground">{{ quickRecsProgress.artist }}</span>
+              </div>
+              <div class="text-sm">
+                <span class="font-semibold text-primary">{{ quickRecommendationPool.length }} tracks</span>
+                <span class="text-muted-foreground"> in pool</span>
+              </div>
+              <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
+                <div
+                  class="h-full bg-primary transition-all duration-300"
+                  :style="{ width: `${(quickRecsProgress.current / quickRecsProgress.total) * 100}%` }"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Alert v-if="errorMessage" variant="destructive">
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{{ errorMessage }}</AlertDescription>
@@ -60,38 +94,59 @@
 {{ formattedResult }}
               </pre>
             </details>
+            <div v-if="existingFingerprint" class="mt-3 flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                @click="downloadFingerprintJson"
+              >
+                Download Fingerprint JSON
+              </Button>
+              <span class="text-xs text-muted-foreground">
+                ({{ fingerprintJsonSize }})
+              </span>
+            </div>
           </CardContent>
         </Card>
         <div class="space-y-3">
-          <Button
-            type="button"
-            :disabled="!existingFingerprint || recommendationsLoading"
-            @click="fetchRecommendationsList"
-          >
-            {{ recommendationsLoading ? 'Generating recommendations…' : 'Get recommendations' }}
-          </Button>
+          <div class="flex items-center gap-3">
+            <Button
+              type="button"
+              :disabled="quickRecommendationPool.length === 0 || recommendationsLoading"
+              @click="fetchRecommendationsList"
+            >
+              {{ recommendationsLoading ? 'Finding recommendation…' : 'Get Next Recommendation' }}
+            </Button>
+            <span v-if="quickRecommendationPool.length > 0" class="text-sm text-muted-foreground">
+              Pool: {{ quickRecommendationPool.length }} tracks
+            </span>
+          </div>
           <Alert v-if="recommendationsError" variant="destructive">
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{{ recommendationsError }}</AlertDescription>
           </Alert>
-          <Card v-if="recommendations.length">
+          <Card v-if="currentRecommendation">
             <CardContent class="pt-6 space-y-3">
               <div class="space-y-2">
                 <div class="relative w-full overflow-hidden rounded-lg bg-muted" style="padding-bottom: 56.25%;">
-                  <iframe
+                  <!-- YouTube Player API container -->
+                  <div
                     v-if="youtubeVideo"
+                    :id="PLAYER_ELEMENT_ID"
                     class="absolute left-0 top-0 h-full w-full"
-                    :src="`${youtubeVideo.url}?rel=0`"
-                    title="YouTube video player"
-                    frameborder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowfullscreen
                   />
                   <div
                     v-else-if="youtubeLoading"
                     class="absolute inset-0 flex items-center justify-center"
                   >
                     Loading video…
+                  </div>
+                  <div
+                    v-else-if="ytPlayer.hasError.value"
+                    class="absolute inset-0 flex items-center justify-center text-destructive text-sm text-center px-4"
+                  >
+                    Video cannot be embedded (auto-skipping...)
                   </div>
                   <div
                     v-else-if="youtubeError"
@@ -103,33 +158,15 @@
                     v-else
                     class="absolute inset-0 flex items-center justify-center text-muted-foreground"
                   >
-                    Select a recommendation to view.
+                    Click "Get Next Recommendation" to start.
                   </div>
                 </div>
-                <div v-if="currentRecommendation" class="space-y-1">
+                <div class="space-y-1">
                   <h2 class="text-xl font-semibold">
-                    {{ currentRecommendation.title }} ({{ currentRecommendation.genre }})
+                    {{ currentRecommendation.title }}
                   </h2>
                   <p class="text-muted-foreground">{{ currentRecommendation.artist }}</p>
                 </div>
-              </div>
-              <div class="flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  :disabled="recommendationsLoading || youtubeLoading || !recommendations.length"
-                  @click="showPreviousRecommendation"
-                >
-                  Previous
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  :disabled="recommendationsLoading || youtubeLoading || !recommendations.length"
-                  @click="showNextRecommendation"
-                >
-                  Next
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -143,10 +180,14 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   getMusicFingerprintFromIndexedDB,
-  saveMusicFingerprintToIndexedDB,
+  getRecommendationsCacheFromIndexedDB,
+  addDisplayedRecommendation,
+  addNoVideoRecommendation,
+  isRecommendationCached,
+  clearRecommendationsCache,
   type MusicFingerprintPayload
 } from '~/utils/indexedDb'
-import { useRecommendationEngine, type Recommendation } from '~/composables/useRecommendationEngine'
+import type { Recommendation } from '~/types/recommendation'
 
 definePageMeta({
   middleware: 'auth'
@@ -155,25 +196,26 @@ definePageMeta({
 const auth = useSpotifyAuth()
 const router = useRouter()
 
-const isLoading = ref(false)
-const errorMessage = ref<string | null>(null)
-const progressStage = ref<string | null>(null)
-const progressPercent = ref<number | null>(null)
-const progressMessage = ref<string | null>(null)
-const result = ref<{
-  artists: any[]
-  liked_tracks: any[]
-  genres: Array<{ name: string; score: number }>
-} | null>(null)
+// Use global fingerprint generator
+const fingerprint = useFingerprintGenerator()
+const {
+  isLoading,
+  progressStage,
+  progressPercent,
+  progressMessage,
+  errorMessage,
+  result,
+  quickRecommendationPool,
+  quickRecsProgress,
+  generateFingerprint,
+  rebuildQuickRecommendations
+} = fingerprint
+
 const profile = ref<SpotifyProfile | null>(null)
 const existingFingerprint = ref<MusicFingerprintPayload | null>(null)
-const recommendations = ref<Recommendation[]>([])
 const recommendationsLoading = ref(false)
 const recommendationsError = ref<string | null>(null)
-const currentRecommendationIndex = ref(0)
-const currentRecommendation = computed(() =>
-  recommendations.value[currentRecommendationIndex.value] ?? null
-)
+const currentRecommendation = ref<Recommendation | null>(null)
 
 interface YouTubeVideoMeta {
   videoId: string
@@ -186,11 +228,43 @@ const youtubeVideo = ref<YouTubeVideoMeta | null>(null)
 const youtubeLoading = ref(false)
 const youtubeError = ref<string | null>(null)
 
+// YouTube Player API
+const ytPlayer = useYouTubePlayer()
+const PLAYER_ELEMENT_ID = 'youtube-player'
+
 const formattedResult = computed(() =>
   result.value ? JSON.stringify(result.value, null, 2) : ''
 )
 const topGenres = computed(() => (result.value ? result.value.genres.slice(0, 5) : []))
-const recommendationEngine = useRecommendationEngine()
+
+// Fingerprint JSON download
+const fingerprintJsonSize = computed(() => {
+  if (!existingFingerprint.value) return ''
+  const jsonString = JSON.stringify(existingFingerprint.value)
+  const bytes = new Blob([jsonString]).size
+  if (bytes < 1024) return `${bytes} bytes`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+})
+
+const downloadFingerprintJson = () => {
+  if (!existingFingerprint.value) return
+
+  try {
+    const jsonString = JSON.stringify(existingFingerprint.value, null, 2)
+    const blob = new Blob([jsonString], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `midnight-radar-fingerprint-${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('Failed to download fingerprint JSON', error)
+  }
+}
 
 interface SpotifyProfile {
   displayName: string
@@ -220,106 +294,24 @@ const loadProfileAndFingerprint = async () => {
       existingFingerprint.value = stored
 
       if (stored && stored.user.email === profileResponse.email) {
-        result.value = {
-          artists: stored.taste.artists as any[],
-          liked_tracks: stored.taste.liked_tracks as any[],
-          genres: stored.taste.genres as Array<{ name: string; score: number }>
-        }
-        progressStage.value = 'cached'
-        progressPercent.value = 100
-        progressMessage.value = 'Loaded fingerprint from this device.'
+        // Already have fingerprint, don't auto-generate
         return
       }
     }
-
-    await fetchSpotifyData()
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to initialize fingerprint.'
-    errorMessage.value = message
+    const message = error instanceof Error ? error.message : 'Failed to load profile.'
+    console.error(message, error)
   }
 }
 
 const fetchSpotifyData = async (force = false) => {
-  if (isLoading.value) {
-    return
+  await generateFingerprint(force)
+
+  // Update existingFingerprint after generation
+  if (process.client && result.value) {
+    const stored = await getMusicFingerprintFromIndexedDB().catch(() => null)
+    existingFingerprint.value = stored
   }
-
-  const authorizationHeader = await auth.getAuthorizationHeader()
-
-  if (!authorizationHeader) {
-    errorMessage.value = 'Missing Spotify access token. Please log in again.'
-    auth.logout()
-    router.push('/login')
-    return
-  }
-
-  isLoading.value = true
-  errorMessage.value = null
-  progressStage.value = null
-  progressPercent.value = null
-  progressMessage.value = null
-  result.value = null
-
-  try {
-    if (!process.client) {
-      throw new Error('Spotify fetch requires a browser environment.')
-    }
-
-    const url = new URL('/api/fetch-spotify-user-data', window.location.origin)
-    if (force) {
-      url.searchParams.set('force', 'true')
-    }
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        Authorization: authorizationHeader
-      }
-    })
-
-    if (!response.body) {
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`)
-      }
-      throw new Error('Streaming response is not supported in this environment.')
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder('utf-8')
-    let buffer = ''
-    let done = false
-
-    while (!done) {
-      const { value, done: readerDone } = await reader.read()
-      done = readerDone
-
-      if (value) {
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (await processStreamLine(line)) {
-            done = true
-            break
-          }
-        }
-      }
-    }
-
-    if (!done && buffer.trim()) {
-      await processStreamLine(buffer)
-    }
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to fetch Spotify data.'
-    errorMessage.value = message
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const handleLogout = () => {
-  auth.logout()
-  router.push('/login')
 }
 
 const fetchRecommendationsList = async () => {
@@ -327,209 +319,130 @@ const fetchRecommendationsList = async () => {
     return
   }
 
+  // Destroy existing player
+  ytPlayer.destroyPlayer()
+
   recommendationsLoading.value = true
   recommendationsError.value = null
   youtubeError.value = null
   youtubeVideo.value = null
-  currentRecommendationIndex.value = 0
 
   try {
-    let fingerprint = existingFingerprint.value
-
-    if (!fingerprint) {
-      fingerprint = await getMusicFingerprintFromIndexedDB().catch(() => null)
+    // Check if quick recommendation pool has tracks
+    if (quickRecommendationPool.value.length === 0) {
+      throw new Error('No recommendations in pool. Please generate Spotify data first or rebuild quick recs.')
     }
 
-    if (!fingerprint) {
-      throw new Error('No fingerprint available yet. Please generate Spotify data first.')
+    // Load recommendations cache
+    const cache = await getRecommendationsCacheFromIndexedDB()
+
+    // Loop until we find a valid recommendation
+    let attempts = 0
+    const MAX_ATTEMPTS = 50
+
+    while (attempts < MAX_ATTEMPTS) {
+      if (quickRecommendationPool.value.length === 0) {
+        throw new Error('Pool exhausted. Please rebuild quick recommendations.')
+      }
+
+      // Get random recommendation from pool
+      const randomIndex = Math.floor(Math.random() * quickRecommendationPool.value.length)
+      const recommendation = quickRecommendationPool.value[randomIndex]
+
+      // Check if already displayed OR has no video
+      if (isRecommendationCached(recommendation.mrid, cache)) {
+        // Skip this one, remove from pool
+        quickRecommendationPool.value.splice(randomIndex, 1)
+        attempts++
+        continue
+      }
+
+      // Try to find on YouTube
+      try {
+        youtubeLoading.value = true
+        const video = await $fetch<YouTubeVideoMeta>('/api/youtube-search', {
+          query: {
+            song: recommendation.title,
+            artist: recommendation.artist
+          }
+        })
+
+        // SUCCESS: Video found
+        currentRecommendation.value = recommendation
+        youtubeVideo.value = video
+        youtubeError.value = null
+
+        // Create YouTube player with error handler
+        await createYouTubePlayer(video.videoId, async (errorCode: number) => {
+          console.error(`🚫 YouTube player error ${errorCode} for: ${recommendation.artist} - ${recommendation.title}`)
+          // Mark as no_video and auto-skip
+          await addNoVideoRecommendation(recommendation.mrid)
+          // Auto-fetch next recommendation
+          await fetchRecommendationsList()
+        })
+
+        // Mark as displayed in cache
+        await addDisplayedRecommendation(recommendation.mrid)
+
+        // Remove from pool
+        quickRecommendationPool.value.splice(randomIndex, 1)
+
+        console.log(`✅ Found video for: ${recommendation.artist} - ${recommendation.title}`)
+        console.log(`📊 Pool remaining: ${quickRecommendationPool.value.length} tracks`)
+        console.log('🎵 Displaying recommendation:', JSON.parse(JSON.stringify(recommendation)))
+        break
+      } catch (error) {
+        // NO VIDEO: Mark as no_video and try next
+        console.warn(`⚠️ No video found for: ${recommendation.artist} - ${recommendation.title}`)
+        await addNoVideoRecommendation(recommendation.mrid)
+
+        // Remove from pool
+        quickRecommendationPool.value.splice(randomIndex, 1)
+        attempts++
+      } finally {
+        youtubeLoading.value = false
+      }
     }
 
-    const recs = await recommendationEngine.generateRecommendations({ fingerprint })
-    recommendations.value = recs
-    console.log('Recommendations', recs)
-
-    currentRecommendationIndex.value = 0
-    await loadYouTubeVideoForCurrentRecommendation()
+    if (attempts >= MAX_ATTEMPTS) {
+      throw new Error('Unable to find valid recommendations. Please rebuild quick recommendations.')
+    }
   } catch (error: unknown) {
     const message =
-      error instanceof Error ? error.message : 'Failed to generate recommendations.'
+      error instanceof Error ? error.message : 'Failed to get recommendation.'
     recommendationsError.value = message
     console.error(message, error)
     youtubeVideo.value = null
+    currentRecommendation.value = null
   } finally {
     recommendationsLoading.value = false
   }
 }
 
-const cloneForStorage = <T>(value: T): T => {
+const handleClearCache = async () => {
   try {
-    return JSON.parse(JSON.stringify(value)) as T
-  } catch {
-    return value
-  }
-}
-
-const persistFingerprint = async (data: {
-  artists: any[]
-  liked_tracks: any[]
-  genres: Array<{ name: string; score: number }>
-}) => {
-  if (!process.client || !profile.value) {
-    return
-  }
-
-  const cleanUser = cloneForStorage(profile.value)
-  const cleanArtists = cloneForStorage(data.artists)
-  const cleanTracks = cloneForStorage(data.liked_tracks)
-  const cleanGenres = cloneForStorage(data.genres)
-  const cleanSeen = existingFingerprint.value
-    ? cloneForStorage(existingFingerprint.value.seen_recommendations)
-    : []
-
-  const fingerprint: MusicFingerprintPayload = {
-    version: 1,
-    generated_at: new Date().toISOString(),
-    user: cleanUser,
-    taste: {
-      artists: cleanArtists,
-      liked_tracks: cleanTracks,
-      genres: cleanGenres
-    },
-    seen_recommendations: cleanSeen
-  }
-
-  try {
-    await saveMusicFingerprintToIndexedDB(fingerprint)
-    existingFingerprint.value = fingerprint
+    await clearRecommendationsCache()
+    console.log('✅ Recommendations cache cleared')
+    alert('Recommendations cache cleared! You can now see previously displayed tracks again.')
   } catch (error) {
-    console.error('Failed to save fingerprint to IndexedDB', error)
+    console.error('Failed to clear cache:', error)
+    alert('Failed to clear cache. Please try again.')
   }
 }
 
-const loadYouTubeVideoForCurrentRecommendation = async () => {
-  if (!process.client) {
-    youtubeVideo.value = null
-    return
-  }
-
-  const recommendation = currentRecommendation.value
-
-  if (!recommendation) {
-    youtubeVideo.value = null
-    youtubeError.value = null
-    youtubeLoading.value = false
-    return
-  }
-
-  youtubeLoading.value = true
-  youtubeError.value = null
-
+const createYouTubePlayer = async (
+  videoId: string,
+  onError: (errorCode: number) => void
+) => {
   try {
-    const video = await $fetch<YouTubeVideoMeta>('/api/youtube-search', {
-      query: {
-        song: recommendation.title,
-        artist: recommendation.artist
-      }
-    })
-
-    youtubeVideo.value = video
-  } catch (error: unknown) {
-    youtubeVideo.value = null
-    youtubeError.value =
-      error instanceof Error ? error.message : 'Failed to load video for this track.'
-  } finally {
-    youtubeLoading.value = false
+    await ytPlayer.createPlayer(PLAYER_ELEMENT_ID, videoId, onError)
+  } catch (error) {
+    console.error('Failed to create YouTube player:', error)
+    throw error
   }
-}
-
-const showNextRecommendation = async () => {
-  const total = recommendations.value.length
-  if (!total) {
-    return
-  }
-
-  currentRecommendationIndex.value = (currentRecommendationIndex.value + 1) % total
-  await loadYouTubeVideoForCurrentRecommendation()
-}
-
-const showPreviousRecommendation = async () => {
-  const total = recommendations.value.length
-  if (!total) {
-    return
-  }
-
-  currentRecommendationIndex.value =
-    (currentRecommendationIndex.value - 1 + total) % total
-  await loadYouTubeVideoForCurrentRecommendation()
 }
 
 onMounted(() => {
   loadProfileAndFingerprint()
 })
-
-const processStreamLine = async (line: string): Promise<boolean> => {
-  if (!line.trim()) {
-    return false
-  }
-
-  let payload:
-    | {
-        type: 'progress'
-        stage: string
-        progress?: number
-        message?: string
-      }
-    | {
-        type: 'complete'
-        cached?: boolean
-        data: {
-          artists: any[]
-          liked_tracks: any[]
-          genres: Array<{ name: string; score: number }>
-        }
-      }
-    | {
-        type: 'error'
-        error?: string
-      }
-
-  try {
-    payload = JSON.parse(line)
-  } catch {
-    return false
-  }
-
-  if (payload.type === 'progress') {
-    progressStage.value = payload.stage
-    progressPercent.value =
-      typeof payload.progress === 'number'
-        ? Math.min(100, Math.max(0, Math.round(payload.progress)))
-        : null
-    progressMessage.value =
-      payload.message ??
-      (payload.stage === 'liked_tracks'
-        ? 'Fetching liked tracks…'
-        : payload.stage === 'followed_artists'
-          ? 'Fetching followed artists…'
-          : 'Resolving artist details…')
-    return false
-  }
-
-  if (payload.type === 'complete') {
-    result.value = payload.data
-    progressStage.value = 'complete'
-    progressPercent.value = 100
-    progressMessage.value = payload.cached ? 'Loaded from cache' : 'Completed'
-
-    await persistFingerprint(payload.data)
-    return true
-  }
-
-  if (payload.type === 'error') {
-    errorMessage.value = payload.error ?? 'Failed to fetch Spotify data.'
-    return true
-  }
-
-  return false
-}
 </script>
