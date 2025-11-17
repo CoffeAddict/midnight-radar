@@ -161,11 +161,54 @@
                     Click "Get Next Recommendation" to start.
                   </div>
                 </div>
-                <div class="space-y-1">
-                  <h2 class="text-xl font-semibold">
-                    {{ currentRecommendation.title }}
-                  </h2>
-                  <p class="text-muted-foreground">{{ currentRecommendation.artist }}</p>
+                <div class="space-y-3">
+                  <div class="space-y-1">
+                    <h2 class="text-xl font-semibold">
+                      {{ currentRecommendation.title }}
+                    </h2>
+                    <p class="text-muted-foreground">{{ currentRecommendation.artist }}</p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <a
+                      :href="getSpotifySearchUrl(currentRecommendation.artist, currentRecommendation.title)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex h-9 w-9 items-center justify-center rounded-md p-1.5 transition-opacity hover:opacity-80"
+                      style="background-color: #1DB954;"
+                      title="Search on Spotify"
+                    >
+                      <img src="/icons/spotify.svg" alt="Spotify" class="h-full w-full" />
+                    </a>
+                    <a
+                      :href="getSoundCloudSearchUrl(currentRecommendation.artist, currentRecommendation.title)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex h-9 w-9 items-center justify-center rounded-md p-1.5 transition-opacity hover:opacity-80"
+                      style="background-color: #FF5500;"
+                      title="Search on SoundCloud"
+                    >
+                      <img src="/icons/soundcloud.svg" alt="SoundCloud" class="h-full w-full" />
+                    </a>
+                    <a
+                      :href="getAppleMusicSearchUrl(currentRecommendation.artist, currentRecommendation.title)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex h-9 w-9 items-center justify-center rounded-md p-1.5 transition-opacity hover:opacity-80"
+                      style="background-color: #FA243C;"
+                      title="Search on Apple Music"
+                    >
+                      <img src="/icons/apple_music.svg" alt="Apple Music" class="h-full w-full" />
+                    </a>
+                    <a
+                      :href="getYouTubeMusicSearchUrl(currentRecommendation.artist, currentRecommendation.title)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex h-9 w-9 items-center justify-center rounded-md overflow-hidden transition-opacity hover:opacity-80"
+                      title="Search on YouTube Music"
+                    >
+                      <img src="/icons/youtube_music.jpeg" alt="YouTube Music" class="h-full w-full object-cover" />
+                    </a>
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -440,6 +483,27 @@ const createYouTubePlayer = async (
     console.error('Failed to create YouTube player:', error)
     throw error
   }
+}
+
+// Streaming service search URL generators
+const getSpotifySearchUrl = (artist: string, track: string): string => {
+  const query = encodeURIComponent(`${artist} - ${track}`)
+  return `https://open.spotify.com/search/${query}`
+}
+
+const getSoundCloudSearchUrl = (artist: string, track: string): string => {
+  const query = encodeURIComponent(`${artist} - ${track}`)
+  return `https://soundcloud.com/search?q=${query}`
+}
+
+const getAppleMusicSearchUrl = (artist: string, track: string): string => {
+  const query = encodeURIComponent(`${artist} ${track}`)
+  return `https://music.apple.com/us/search?term=${query}`
+}
+
+const getYouTubeMusicSearchUrl = (artist: string, track: string): string => {
+  const query = encodeURIComponent(`${artist} ${track}`)
+  return `https://music.youtube.com/search?q=${query}`
 }
 
 onMounted(() => {
