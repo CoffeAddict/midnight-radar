@@ -87,7 +87,6 @@ Each liked track is captured as:
   "id": "3abc...",
   "name": "Song Title",
   "artist": "Primary Artist",
-  "external_ids": { "isrc": "US-UM7-20-12345" },
   "added_at": "2025-10-20T18:22:00Z"
 }
 ```
@@ -136,8 +135,8 @@ Implemented in `useRecommendationEngine.ts`, the engine works purely on the clie
 
 Before a track enters the recommendation pool, we enforce:
 
-- **Identifier check**: If the recording has `isrc`, `ean`, or `upc`, compare case-insensitively against the fingerprint's liked tracks and any recommendations already selected.
-- **Artist + Title pair**: Case-insensitive match on `artist` and `title`. This ensures we avoid recommending the same song when identifiers are missing but titles match.
+- **Artist + Title pair**: Case-insensitive match on `artist` and `title` against the user's liked tracks and any recommendations already selected.
+- **Identifier tracking**: MusicBrainz ISRCs and barcodes are used to deduplicate within the recommendation pool itself (to avoid duplicate entries from different MusicBrainz releases).
 
 If pooling pushes the queue below five items, the engine fetches more recordings for that genre.
 

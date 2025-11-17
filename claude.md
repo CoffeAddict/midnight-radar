@@ -151,7 +151,7 @@ server/
 - Runs client-side via `useRecommendationEngine` composable
 - Uses weighted genre selection from fingerprint
 - Fetches tracks from MusicBrainz via `/api/discover` proxy
-- Deduplicates using ISRC/EAN/UPC and artist+title pairs
+- Deduplicates using artist+title pairs (ISRCs/barcodes from MusicBrainz are used to avoid duplicate pool entries)
 - Returns 10 novel recommendations
 
 ### YouTube Integration
