@@ -1,4 +1,4 @@
-import { getMusicFingerprintFromIndexedDB, reconstructObject } from '~/utils/indexedDb'
+import { getMusicFingerprintFromIndexedDB } from '~/utils/indexedDb'
 
 export interface Recommendation {
   title: string
@@ -15,6 +15,13 @@ interface RecommendationEngineOptions {
 interface FingerprintGenre {
   name: string
   score: number
+}
+
+interface FingerprintLikedTrack {
+  id: string
+  name: string
+  artist: string
+  added_at?: string
 }
 
 const DISCOVER_ENDPOINT = '/api/discover'
@@ -45,22 +52,11 @@ export const useRecommendationEngine = () => {
     const fingerprint =
       options.fingerprint ?? (await getMusicFingerprintFromIndexedDB().catch(() => null))
 
-    if (!fingerprint || !Array.isArray(fingerprint.keys) || !Array.isArray(fingerprint.data)) {
+    if (!fingerprint || !Array.isArray(fingerprint.taste.genres)) {
       throw new Error('No fingerprint found. Cannot generate recommendations.')
     }
 
-    // Reconstruct all data items from columnar format
-    const allItems = fingerprint.data.map((row) =>
-      reconstructObject<Record<string, unknown>>(fingerprint.keys, row)
-    )
-
-    // Extract genres (items with type='genre')
-    const genres = allItems
-      .filter((item) => item.type === 'genre')
-      .map((item) => ({
-        name: item.name as string,
-        score: item.score as number
-      })) as FingerprintGenre[]
+    const genres = fingerprint.taste.genres as FingerprintGenre[]
 
     if (genres.length === 0) {
       throw new Error('Fingerprint does not contain genre data.')
@@ -69,19 +65,15 @@ export const useRecommendationEngine = () => {
     const likedIdentifiers = new Set<string>()
     const likedArtistTitlePairs = new Set<string>()
 
-    // Extract liked tracks (items with type='track')
-    const likedTracks = allItems.filter((item) => item.type === 'track')
+    const likedTracks = (fingerprint.taste.liked_tracks as FingerprintLikedTrack[]) ?? []
     for (const track of likedTracks) {
       if (!track) {
         continue
       }
 
-      const trackArtists = track.artists as Array<{ id?: string; name: string }> | undefined
-      const primaryArtist = trackArtists?.[0]?.name ?? ''
-
       // Use artist+title pairs for deduplication against user's liked tracks
-      if (primaryArtist && track.name) {
-        likedArtistTitlePairs.add(buildArtistTitleKey(primaryArtist, track.name as string))
+      if (track.artist && track.name) {
+        likedArtistTitlePairs.add(buildArtistTitleKey(track.artist, track.name))
       }
     }
 

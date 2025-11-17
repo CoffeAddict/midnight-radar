@@ -47,35 +47,12 @@ export interface MusicFingerprintPayload {
     country: string
     profileImage: string | null
   }
-  keys: string[]
-  data: unknown[][]
-}
-
-/**
- * Reconstructs an object from columnar fingerprint data
- * @param keys - Array of property names
- * @param values - Array of values corresponding to keys
- * @returns Object with keys mapped to values
- */
-export const reconstructObject = <T = Record<string, unknown>>(
-  keys: string[],
-  values: unknown[]
-): T => {
-  return keys.reduce((obj, key, index) => {
-    obj[key] = values[index]
-    return obj
-  }, {} as Record<string, unknown>) as T
-}
-
-/**
- * Reconstructs all objects from fingerprint data array
- * @param fingerprint - The music fingerprint payload
- * @returns Array of reconstructed objects
- */
-export const reconstructAllData = <T = Record<string, unknown>>(
-  fingerprint: MusicFingerprintPayload
-): T[] => {
-  return fingerprint.data.map((row) => reconstructObject<T>(fingerprint.keys, row))
+  taste: {
+    artists: unknown
+    liked_tracks: unknown
+    genres: unknown
+  }
+  seen_recommendations: unknown[]
 }
 
 export const saveMusicFingerprintToIndexedDB = async (

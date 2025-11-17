@@ -37,8 +37,8 @@
         <Card v-if="result">
           <CardContent class="pt-6 text-sm">
             <p class="mb-2 text-muted-foreground">
-              Retrieved {{ itemCounts.artists }} artists, {{ itemCounts.tracks }} liked tracks, and
-              {{ itemCounts.genres }} genres.
+              Retrieved {{ result.artists.length }} artists, {{ result.liked_tracks.length }} liked tracks, and
+              {{ result.genres.length }} genres.
             </p>
             <ul v-if="topGenres.length" class="mb-3 space-y-1">
               <li v-for="genre in topGenres" :key="genre.name">
@@ -148,7 +148,6 @@ import { computed, onMounted, ref } from 'vue'
 import {
   getMusicFingerprintFromIndexedDB,
   saveMusicFingerprintToIndexedDB,
-  reconstructObject,
   type MusicFingerprintPayload
 } from '~/utils/indexedDb'
 import { useRecommendationEngine, type Recommendation } from '~/composables/useRecommendationEngine'
@@ -166,8 +165,9 @@ const progressStage = ref<string | null>(null)
 const progressPercent = ref<number | null>(null)
 const progressMessage = ref<string | null>(null)
 const result = ref<{
-  keys: string[]
-  data: unknown[][]
+  artists: any[]
+  liked_tracks: any[]
+  genres: Array<{ name: string; score: number }>
 } | null>(null)
 const profile = ref<SpotifyProfile | null>(null)
 const existingFingerprint = ref<MusicFingerprintPayload | null>(null)
@@ -193,42 +193,7 @@ const youtubeError = ref<string | null>(null)
 const formattedResult = computed(() =>
   result.value ? JSON.stringify(result.value, null, 2) : ''
 )
-
-// Count items by type from columnar data
-const itemCounts = computed(() => {
-  if (!result.value) return { artists: 0, tracks: 0, genres: 0 }
-
-  const typeIndex = result.value.keys.indexOf('type')
-  if (typeIndex === -1) return { artists: 0, tracks: 0, genres: 0 }
-
-  return result.value.data.reduce((counts, row) => {
-    const type = row[typeIndex]
-    if (type === 'artist') counts.artists++
-    else if (type === 'track') counts.tracks++
-    else if (type === 'genre') counts.genres++
-    return counts
-  }, { artists: 0, tracks: 0, genres: 0 })
-})
-
-// Extract top 5 genres from columnar data
-const topGenres = computed(() => {
-  if (!result.value) return []
-
-  const allItems = result.value.data.map((row) =>
-    reconstructObject<Record<string, unknown>>(result.value!.keys, row)
-  )
-
-  const genres = allItems
-    .filter((item) => item.type === 'genre')
-    .map((item) => ({
-      name: item.name as string,
-      score: item.score as number
-    }))
-    .slice(0, 5)
-
-  return genres
-})
-
+const topGenres = computed(() => (result.value ? result.value.genres.slice(0, 5) : []))
 const recommendationEngine = useRecommendationEngine()
 
 // Fingerprint JSON download
@@ -289,8 +254,9 @@ const loadProfileAndFingerprint = async () => {
 
       if (stored && stored.user.email === profileResponse.email) {
         result.value = {
-          keys: stored.keys,
-          data: stored.data
+          artists: stored.taste.artists as any[],
+          liked_tracks: stored.taste.liked_tracks as any[],
+          genres: stored.taste.genres as Array<{ name: string; score: number }>
         }
         progressStage.value = 'cached'
         progressPercent.value = 100
@@ -432,23 +398,32 @@ const cloneForStorage = <T>(value: T): T => {
 }
 
 const persistFingerprint = async (data: {
-  keys: string[]
-  data: unknown[][]
+  artists: any[]
+  liked_tracks: any[]
+  genres: Array<{ name: string; score: number }>
 }) => {
   if (!process.client || !profile.value) {
     return
   }
 
   const cleanUser = cloneForStorage(profile.value)
-  const cleanKeys = cloneForStorage(data.keys)
-  const cleanData = cloneForStorage(data.data)
+  const cleanArtists = cloneForStorage(data.artists)
+  const cleanTracks = cloneForStorage(data.liked_tracks)
+  const cleanGenres = cloneForStorage(data.genres)
+  const cleanSeen = existingFingerprint.value
+    ? cloneForStorage(existingFingerprint.value.seen_recommendations)
+    : []
 
   const fingerprint: MusicFingerprintPayload = {
-    version: 2,
+    version: 1,
     generated_at: new Date().toISOString(),
     user: cleanUser,
-    keys: cleanKeys,
-    data: cleanData
+    taste: {
+      artists: cleanArtists,
+      liked_tracks: cleanTracks,
+      genres: cleanGenres
+    },
+    seen_recommendations: cleanSeen
   }
 
   try {
@@ -536,8 +511,9 @@ const processStreamLine = async (line: string): Promise<boolean> => {
         type: 'complete'
         cached?: boolean
         data: {
-          keys: string[]
-          data: unknown[][]
+          artists: any[]
+          liked_tracks: any[]
+          genres: Array<{ name: string; score: number }>
         }
       }
     | {

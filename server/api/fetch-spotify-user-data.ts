@@ -80,8 +80,9 @@ interface GenreScore {
 }
 
 interface CachedSpotifyData {
-  keys: string[]
-  data: unknown[][]
+  artists: NormalizedArtist[]
+  liked_tracks: LikedTrack[]
+  genres: GenreScore[]
 }
 
 interface ProgressUpdate {
@@ -157,8 +158,11 @@ export default defineEventHandler(async (event) => {
       message: 'Artist details fetched successfully.'
     })
 
-    // Convert to columnar format
-    const payload: CachedSpotifyData = convertToColumnarFormat(artists, likedTracks, genres)
+    const payload: CachedSpotifyData = {
+      artists,
+      liked_tracks: likedTracks,
+      genres
+    }
 
     spotifyCache.set(accessToken, payload)
     sendComplete(payload, false)
@@ -413,64 +417,6 @@ const fetchArtistsInBatches = async (
     artists,
     genres
   }
-}
-
-/**
- * Converts artists, tracks, and genres into a unified columnar format
- */
-const convertToColumnarFormat = (
-  artists: NormalizedArtist[],
-  likedTracks: LikedTrack[],
-  genres: GenreScore[]
-): CachedSpotifyData => {
-  // Define unified schema that can represent all entity types
-  // Schema: [type, id, name, genres, artists, album, added_at, score]
-  const keys = ['type', 'id', 'name', 'genres', 'artists', 'album', 'added_at', 'score']
-  const data: unknown[][] = []
-
-  // Add genres
-  genres.forEach((genre) => {
-    data.push([
-      'genre',        // type
-      null,           // id
-      genre.name,     // name
-      null,           // genres
-      null,           // artists
-      null,           // album
-      null,           // added_at
-      genre.score     // score
-    ])
-  })
-
-  // Add artists
-  artists.forEach((artist) => {
-    data.push([
-      'artist',       // type
-      artist.id,      // id
-      artist.name,    // name
-      artist.genres,  // genres
-      null,           // artists
-      null,           // album
-      null,           // added_at
-      null            // score
-    ])
-  })
-
-  // Add liked tracks
-  likedTracks.forEach((track) => {
-    data.push([
-      'track',        // type
-      track.id,       // id
-      track.name,     // name
-      null,           // genres
-      track.artists,  // artists
-      track.album,    // album
-      track.added_at, // added_at
-      null            // score
-    ])
-  })
-
-  return { keys, data }
 }
 
 const fetchFromSpotify = async <T>(url: string, accessToken: string): Promise<T> => {
