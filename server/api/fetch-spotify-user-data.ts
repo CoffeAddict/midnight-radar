@@ -6,7 +6,7 @@ const LIKE_WEIGHT_DECAY_DAYS = 60
 const LIKE_MIN_WEIGHT = 0.1
 const FOLLOW_WEIGHT = 0.5
 
-type ProgressStage = 'liked_tracks' | 'followed_artists' | 'artist_details'
+type ProgressStage = 'liked_tracks' | 'followed_artists' | 'top_artists' | 'artist_details'
 
 interface SpotifySavedTrack {
   track: {
@@ -53,6 +53,14 @@ interface SpotifyArtistsBatchResponse {
   artists: SpotifyArtistDetails[]
 }
 
+interface SpotifyTopArtistsResponse {
+  items: Array<{
+    id: string
+    name: string
+  }>
+  total?: number
+}
+
 interface LikedTrack {
   id: string
   name: string
@@ -72,6 +80,7 @@ interface NormalizedArtist {
   id: string
   name: string
   genres: string[]
+  isTopArtist?: boolean
 }
 
 interface GenreScore {
@@ -144,11 +153,14 @@ export default defineEventHandler(async (event) => {
     emitProgress({ stage: 'followed_artists', ratio: 0, message: 'Fetching followed artists…' })
     await fetchAllFollowedArtists(accessToken, artistIds, artistWeights, emitProgress)
 
+    const topArtistIds = await fetchTopArtists(accessToken, emitProgress)
+
     emitProgress({ stage: 'artist_details', ratio: 0, message: 'Resolving artist details…' })
     const { artists, genres } = await fetchArtistsInBatches(
       accessToken,
       artistIds,
       artistWeights,
+      topArtistIds,
       emitProgress
     )
 
@@ -191,11 +203,12 @@ const coerceBoolean = (value: unknown): boolean => {
 
 const createProgressEmitter = (write: (payload: unknown) => void) => {
   const stageWeights: Record<ProgressStage, number> = {
-    liked_tracks: 0.5,
-    followed_artists: 0.2,
+    liked_tracks: 0.4,
+    followed_artists: 0.15,
+    top_artists: 0.15,
     artist_details: 0.3
   }
-  const stageOrder: ProgressStage[] = ['liked_tracks', 'followed_artists', 'artist_details']
+  const stageOrder: ProgressStage[] = ['liked_tracks', 'followed_artists', 'top_artists', 'artist_details']
 
   return ({ stage, ratio, message }: ProgressUpdate) => {
     const weight = stageWeights[stage]
@@ -347,10 +360,55 @@ const fetchAllFollowedArtists = async (
   })
 }
 
+const fetchTopArtists = async (
+  accessToken: string,
+  emitProgress: (update: ProgressUpdate) => void
+): Promise<Set<string>> => {
+  const topArtistIds = new Set<string>()
+
+  emitProgress({
+    stage: 'top_artists',
+    ratio: 0,
+    message: 'Fetching top artists…'
+  })
+
+  try {
+    const url = `${SPOTIFY_API_BASE}/me/top/artists?limit=20&time_range=medium_term`
+    const response: SpotifyTopArtistsResponse = await fetchFromSpotify<SpotifyTopArtistsResponse>(
+      url,
+      accessToken
+    )
+
+    const items = response.items ?? []
+    items.forEach((artist) => {
+      if (artist.id) {
+        topArtistIds.add(artist.id)
+      }
+    })
+
+    emitProgress({
+      stage: 'top_artists',
+      ratio: 1,
+      message: `Fetched ${topArtistIds.size} top artists`
+    })
+  } catch (error) {
+    // If top artists endpoint fails, continue without marking top artists
+    console.error('Failed to fetch top artists:', error)
+    emitProgress({
+      stage: 'top_artists',
+      ratio: 1,
+      message: 'Top artists unavailable'
+    })
+  }
+
+  return topArtistIds
+}
+
 const fetchArtistsInBatches = async (
   accessToken: string,
   artistIds: Set<string>,
   artistWeights: Map<string, number>,
+  topArtistIds: Set<string>,
   emitProgress: (update: ProgressUpdate) => void
 ) => {
   const ids = Array.from(artistIds).filter(Boolean)
@@ -383,10 +441,13 @@ const fetchArtistsInBatches = async (
       const weight = artistWeights.get(artist.id) ?? 1
       totalWeight += weight
 
+      const isTopArtist = topArtistIds.has(artist.id)
+
       artists.push({
         id: artist.id,
         name: artist.name,
-        genres: artist.genres ?? []
+        genres: artist.genres ?? [],
+        ...(isTopArtist && { isTopArtist: true })
       })
 
       // Aggregate weighted genre counts so recent likes and follows dominate.
@@ -420,11 +481,15 @@ const fetchArtistsInBatches = async (
 }
 
 const fetchFromSpotify = async <T>(url: string, accessToken: string): Promise<T> => {
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
+  const response = await rateLimitedFetch(
+    RateLimitConfigs.SPOTIFY,
+    url,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
     }
-  })
+  )
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null)

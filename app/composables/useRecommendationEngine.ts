@@ -29,9 +29,6 @@ const TARGET_RECOMMENDATIONS = 10
 const GENRE_BATCH_SIZE = 10
 const MIN_GENRE_POOL = 5
 const DISCOVER_LIMIT = 10
-const MUSICBRAINZ_RATE_LIMIT_MS = 1000
-
-let lastDiscoverRequestTime = 0
 
 interface DiscoverRecording {
   id?: string
@@ -260,15 +257,6 @@ const ensureGenrePool = async ({
 }
 
 const fetchDiscover = async (genre: string, limit: number): Promise<DiscoverResponse> => {
-  const now = Date.now()
-  const elapsed = now - lastDiscoverRequestTime
-
-  if (elapsed < MUSICBRAINZ_RATE_LIMIT_MS) {
-    await new Promise((resolve) => setTimeout(resolve, MUSICBRAINZ_RATE_LIMIT_MS - elapsed))
-  }
-
-  lastDiscoverRequestTime = Date.now()
-
   return await $fetch<DiscoverResponse>(DISCOVER_ENDPOINT, {
     query: {
       genre,

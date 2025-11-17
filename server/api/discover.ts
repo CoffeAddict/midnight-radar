@@ -15,11 +15,15 @@ export default defineEventHandler(async (event) => {
   url.searchParams.set('fmt', 'json')
 
   try {
-    const response = await fetch(url.toString(), {
-      headers: {
-        'User-Agent': 'MidnightRadar/0.1 (contact: andresrodriguezesteban@gmail.com)'
+    const response = await rateLimitedFetch(
+      RateLimitConfigs.MUSICBRAINZ,
+      url.toString(),
+      {
+        headers: {
+          'User-Agent': 'MidnightRadar/0.1 (contact: andresrodriguezesteban@gmail.com)'
+        }
       }
-    })
+    )
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null)

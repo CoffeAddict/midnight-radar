@@ -70,11 +70,15 @@ export default defineEventHandler(async (event) => {
   url.searchParams.set('search_query', query)
 
   try {
-    const response = await fetch(url.toString(), {
-      headers: {
-        'User-Agent': USER_AGENT
+    const response = await rateLimitedFetch(
+      RateLimitConfigs.YOUTUBE,
+      url.toString(),
+      {
+        headers: {
+          'User-Agent': USER_AGENT
+        }
       }
-    })
+    )
 
     if (!response.ok) {
       throw new Error(`YouTube request failed with status ${response.status}`)
@@ -174,11 +178,15 @@ const isStandardVideo = (video: YouTubeVideoRenderer) => {
 const checkEmbeddable = async (videoId: string): Promise<boolean> => {
   try {
     const url = `${YOUTUBE_OEMBED_URL}?url=https://www.youtube.com/watch?v=${videoId}`
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': USER_AGENT
+    const response = await rateLimitedFetch(
+      RateLimitConfigs.YOUTUBE_OEMBED,
+      url,
+      {
+        headers: {
+          'User-Agent': USER_AGENT
+        }
       }
-    })
+    )
 
     return response.ok
   } catch {
