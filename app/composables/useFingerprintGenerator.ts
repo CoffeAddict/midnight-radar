@@ -1,5 +1,5 @@
 import { saveMusicFingerprintToIndexedDB, type MusicFingerprintPayload } from '~/utils/indexedDb'
-import type { Recommendation } from '~/composables/useRecommendationEngine'
+import type { Recommendation } from '~/types/recommendation'
 
 // Constants
 const LIKE_WEIGHT_DECAY_DAYS = 60
@@ -514,8 +514,8 @@ export const useFingerprintGenerator = () => {
     errorMessage: readonly(errorMessage),
     result: readonly(result),
 
-    // Quick recommendations
-    quickRecommendationPool: readonly(quickRecommendationPool),
+    // Quick recommendations (not readonly so we can mutate from page)
+    quickRecommendationPool,
     quickRecsProgress: readonly(quickRecsProgress),
 
     // Actions

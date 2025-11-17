@@ -31,6 +31,13 @@
           >
             {{ progressStage === 'quick_recommendations' ? 'Building…' : 'Rebuild Quick Recs' }}
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            @click="handleClearCache()"
+          >
+            Clear Cache
+          </Button>
         </div>
         <Alert v-if="progressMessage">
           <AlertDescription>
@@ -103,35 +110,43 @@
           </CardContent>
         </Card>
         <div class="space-y-3">
-          <Button
-            type="button"
-            :disabled="!existingFingerprint || recommendationsLoading"
-            @click="fetchRecommendationsList"
-          >
-            {{ recommendationsLoading ? 'Generating recommendations…' : 'Get recommendations' }}
-          </Button>
+          <div class="flex items-center gap-3">
+            <Button
+              type="button"
+              :disabled="quickRecommendationPool.length === 0 || recommendationsLoading"
+              @click="fetchRecommendationsList"
+            >
+              {{ recommendationsLoading ? 'Finding recommendation…' : 'Get Next Recommendation' }}
+            </Button>
+            <span v-if="quickRecommendationPool.length > 0" class="text-sm text-muted-foreground">
+              Pool: {{ quickRecommendationPool.length }} tracks
+            </span>
+          </div>
           <Alert v-if="recommendationsError" variant="destructive">
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{{ recommendationsError }}</AlertDescription>
           </Alert>
-          <Card v-if="recommendations.length">
+          <Card v-if="currentRecommendation">
             <CardContent class="pt-6 space-y-3">
               <div class="space-y-2">
                 <div class="relative w-full overflow-hidden rounded-lg bg-muted" style="padding-bottom: 56.25%;">
-                  <iframe
+                  <!-- YouTube Player API container -->
+                  <div
                     v-if="youtubeVideo"
+                    :id="PLAYER_ELEMENT_ID"
                     class="absolute left-0 top-0 h-full w-full"
-                    :src="`${youtubeVideo.url}?rel=0`"
-                    title="YouTube video player"
-                    frameborder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowfullscreen
                   />
                   <div
                     v-else-if="youtubeLoading"
                     class="absolute inset-0 flex items-center justify-center"
                   >
                     Loading video…
+                  </div>
+                  <div
+                    v-else-if="ytPlayer.hasError.value"
+                    class="absolute inset-0 flex items-center justify-center text-destructive text-sm text-center px-4"
+                  >
+                    Video cannot be embedded (auto-skipping...)
                   </div>
                   <div
                     v-else-if="youtubeError"
@@ -143,33 +158,15 @@
                     v-else
                     class="absolute inset-0 flex items-center justify-center text-muted-foreground"
                   >
-                    Select a recommendation to view.
+                    Click "Get Next Recommendation" to start.
                   </div>
                 </div>
-                <div v-if="currentRecommendation" class="space-y-1">
+                <div class="space-y-1">
                   <h2 class="text-xl font-semibold">
                     {{ currentRecommendation.title }}
                   </h2>
                   <p class="text-muted-foreground">{{ currentRecommendation.artist }}</p>
                 </div>
-              </div>
-              <div class="flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  :disabled="recommendationsLoading || youtubeLoading || !recommendations.length"
-                  @click="showPreviousRecommendation"
-                >
-                  Previous
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  :disabled="recommendationsLoading || youtubeLoading || !recommendations.length"
-                  @click="showNextRecommendation"
-                >
-                  Next
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -183,9 +180,14 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   getMusicFingerprintFromIndexedDB,
+  getRecommendationsCacheFromIndexedDB,
+  addDisplayedRecommendation,
+  addNoVideoRecommendation,
+  isRecommendationCached,
+  clearRecommendationsCache,
   type MusicFingerprintPayload
 } from '~/utils/indexedDb'
-import { useRecommendationEngine, type Recommendation } from '~/composables/useRecommendationEngine'
+import type { Recommendation } from '~/types/recommendation'
 
 definePageMeta({
   middleware: 'auth'
@@ -211,13 +213,9 @@ const {
 
 const profile = ref<SpotifyProfile | null>(null)
 const existingFingerprint = ref<MusicFingerprintPayload | null>(null)
-const recommendations = ref<Recommendation[]>([])
 const recommendationsLoading = ref(false)
 const recommendationsError = ref<string | null>(null)
-const currentRecommendationIndex = ref(0)
-const currentRecommendation = computed(() =>
-  recommendations.value[currentRecommendationIndex.value] ?? null
-)
+const currentRecommendation = ref<Recommendation | null>(null)
 
 interface YouTubeVideoMeta {
   videoId: string
@@ -230,11 +228,14 @@ const youtubeVideo = ref<YouTubeVideoMeta | null>(null)
 const youtubeLoading = ref(false)
 const youtubeError = ref<string | null>(null)
 
+// YouTube Player API
+const ytPlayer = useYouTubePlayer()
+const PLAYER_ELEMENT_ID = 'youtube-player'
+
 const formattedResult = computed(() =>
   result.value ? JSON.stringify(result.value, null, 2) : ''
 )
 const topGenres = computed(() => (result.value ? result.value.genres.slice(0, 5) : []))
-const recommendationEngine = useRecommendationEngine()
 
 // Fingerprint JSON download
 const fingerprintJsonSize = computed(() => {
@@ -318,95 +319,127 @@ const fetchRecommendationsList = async () => {
     return
   }
 
+  // Destroy existing player
+  ytPlayer.destroyPlayer()
+
   recommendationsLoading.value = true
   recommendationsError.value = null
   youtubeError.value = null
   youtubeVideo.value = null
-  currentRecommendationIndex.value = 0
 
   try {
-    let fingerprint = existingFingerprint.value
-
-    if (!fingerprint) {
-      fingerprint = await getMusicFingerprintFromIndexedDB().catch(() => null)
+    // Check if quick recommendation pool has tracks
+    if (quickRecommendationPool.value.length === 0) {
+      throw new Error('No recommendations in pool. Please generate Spotify data first or rebuild quick recs.')
     }
 
-    if (!fingerprint) {
-      throw new Error('No fingerprint available yet. Please generate Spotify data first.')
+    // Load recommendations cache
+    const cache = await getRecommendationsCacheFromIndexedDB()
+
+    // Loop until we find a valid recommendation
+    let attempts = 0
+    const MAX_ATTEMPTS = 50
+
+    while (attempts < MAX_ATTEMPTS) {
+      if (quickRecommendationPool.value.length === 0) {
+        throw new Error('Pool exhausted. Please rebuild quick recommendations.')
+      }
+
+      // Get random recommendation from pool
+      const randomIndex = Math.floor(Math.random() * quickRecommendationPool.value.length)
+      const recommendation = quickRecommendationPool.value[randomIndex]
+
+      // Check if already displayed OR has no video
+      if (isRecommendationCached(recommendation.mrid, cache)) {
+        // Skip this one, remove from pool
+        quickRecommendationPool.value.splice(randomIndex, 1)
+        attempts++
+        continue
+      }
+
+      // Try to find on YouTube
+      try {
+        youtubeLoading.value = true
+        const video = await $fetch<YouTubeVideoMeta>('/api/youtube-search', {
+          query: {
+            song: recommendation.title,
+            artist: recommendation.artist
+          }
+        })
+
+        // SUCCESS: Video found
+        currentRecommendation.value = recommendation
+        youtubeVideo.value = video
+        youtubeError.value = null
+
+        // Create YouTube player with error handler
+        await createYouTubePlayer(video.videoId, async (errorCode: number) => {
+          console.error(`🚫 YouTube player error ${errorCode} for: ${recommendation.artist} - ${recommendation.title}`)
+          // Mark as no_video and auto-skip
+          await addNoVideoRecommendation(recommendation.mrid)
+          // Auto-fetch next recommendation
+          await fetchRecommendationsList()
+        })
+
+        // Mark as displayed in cache
+        await addDisplayedRecommendation(recommendation.mrid)
+
+        // Remove from pool
+        quickRecommendationPool.value.splice(randomIndex, 1)
+
+        console.log(`✅ Found video for: ${recommendation.artist} - ${recommendation.title}`)
+        console.log(`📊 Pool remaining: ${quickRecommendationPool.value.length} tracks`)
+        console.log('🎵 Displaying recommendation:', JSON.parse(JSON.stringify(recommendation)))
+        break
+      } catch (error) {
+        // NO VIDEO: Mark as no_video and try next
+        console.warn(`⚠️ No video found for: ${recommendation.artist} - ${recommendation.title}`)
+        await addNoVideoRecommendation(recommendation.mrid)
+
+        // Remove from pool
+        quickRecommendationPool.value.splice(randomIndex, 1)
+        attempts++
+      } finally {
+        youtubeLoading.value = false
+      }
     }
 
-    const recs = await recommendationEngine.generateRecommendations({ fingerprint })
-    recommendations.value = recs
-    console.log('Recommendations', recs)
-
-    currentRecommendationIndex.value = 0
-    await loadYouTubeVideoForCurrentRecommendation()
+    if (attempts >= MAX_ATTEMPTS) {
+      throw new Error('Unable to find valid recommendations. Please rebuild quick recommendations.')
+    }
   } catch (error: unknown) {
     const message =
-      error instanceof Error ? error.message : 'Failed to generate recommendations.'
+      error instanceof Error ? error.message : 'Failed to get recommendation.'
     recommendationsError.value = message
     console.error(message, error)
     youtubeVideo.value = null
+    currentRecommendation.value = null
   } finally {
     recommendationsLoading.value = false
   }
 }
 
-const loadYouTubeVideoForCurrentRecommendation = async () => {
-  if (!process.client) {
-    youtubeVideo.value = null
-    return
-  }
-
-  const recommendation = currentRecommendation.value
-
-  if (!recommendation) {
-    youtubeVideo.value = null
-    youtubeError.value = null
-    youtubeLoading.value = false
-    return
-  }
-
-  youtubeLoading.value = true
-  youtubeError.value = null
-
+const handleClearCache = async () => {
   try {
-    const video = await $fetch<YouTubeVideoMeta>('/api/youtube-search', {
-      query: {
-        song: recommendation.title,
-        artist: recommendation.artist
-      }
-    })
-
-    youtubeVideo.value = video
-  } catch (error: unknown) {
-    youtubeVideo.value = null
-    youtubeError.value =
-      error instanceof Error ? error.message : 'Failed to load video for this track.'
-  } finally {
-    youtubeLoading.value = false
+    await clearRecommendationsCache()
+    console.log('✅ Recommendations cache cleared')
+    alert('Recommendations cache cleared! You can now see previously displayed tracks again.')
+  } catch (error) {
+    console.error('Failed to clear cache:', error)
+    alert('Failed to clear cache. Please try again.')
   }
 }
 
-const showNextRecommendation = async () => {
-  const total = recommendations.value.length
-  if (!total) {
-    return
+const createYouTubePlayer = async (
+  videoId: string,
+  onError: (errorCode: number) => void
+) => {
+  try {
+    await ytPlayer.createPlayer(PLAYER_ELEMENT_ID, videoId, onError)
+  } catch (error) {
+    console.error('Failed to create YouTube player:', error)
+    throw error
   }
-
-  currentRecommendationIndex.value = (currentRecommendationIndex.value + 1) % total
-  await loadYouTubeVideoForCurrentRecommendation()
-}
-
-const showPreviousRecommendation = async () => {
-  const total = recommendations.value.length
-  if (!total) {
-    return
-  }
-
-  currentRecommendationIndex.value =
-    (currentRecommendationIndex.value - 1 + total) % total
-  await loadYouTubeVideoForCurrentRecommendation()
 }
 
 onMounted(() => {
