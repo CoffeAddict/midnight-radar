@@ -3,9 +3,7 @@ import { getMusicFingerprintFromIndexedDB } from '~/utils/indexedDb'
 export interface Recommendation {
   title: string
   artist: string
-  genre: string
-  isrc?: string
-  mbid?: string
+  mrid: string
 }
 
 interface RecommendationEngineOptions {
@@ -17,10 +15,10 @@ interface FingerprintGenre {
   score: number
 }
 
-interface FingerprintLikedTrack {
-  id: string
-  name: string
+// Decoded track interface
+interface DecodedLikedTrack {
   artist: string
+  name: string
   added_at?: string
 }
 
@@ -42,6 +40,30 @@ interface DiscoverResponse {
   recordings?: DiscoverRecording[]
 }
 
+/**
+ * Validates fingerprint format
+ * Throws error if old object format is detected
+ */
+const validateFingerprintFormat = (fingerprint: any) => {
+  // Check if artists is string[] (new format)
+  if (!Array.isArray(fingerprint.taste.artists)) {
+    throw new Error('Invalid fingerprint format: artists must be an array. Please regenerate your fingerprint.')
+  }
+
+  if (fingerprint.taste.artists.length > 0 && typeof fingerprint.taste.artists[0] !== 'string') {
+    throw new Error('Incompatible fingerprint format detected. Please regenerate your fingerprint using the "Fetch Spotify data" button.')
+  }
+
+  // Check if liked_tracks is string[] (new format)
+  if (!Array.isArray(fingerprint.taste.liked_tracks)) {
+    throw new Error('Invalid fingerprint format: liked_tracks must be an array. Please regenerate your fingerprint.')
+  }
+
+  if (fingerprint.taste.liked_tracks.length > 0 && typeof fingerprint.taste.liked_tracks[0] !== 'string') {
+    throw new Error('Incompatible fingerprint format detected. Please regenerate your fingerprint using the "Fetch Spotify data" button.')
+  }
+}
+
 export const useRecommendationEngine = () => {
   const generateRecommendations = async (
     options: RecommendationEngineOptions = {}
@@ -53,6 +75,9 @@ export const useRecommendationEngine = () => {
       throw new Error('No fingerprint found. Cannot generate recommendations.')
     }
 
+    // Validate format (throws if old format detected)
+    validateFingerprintFormat(fingerprint)
+
     const genres = fingerprint.taste.genres as FingerprintGenre[]
 
     if (genres.length === 0) {
@@ -62,15 +87,22 @@ export const useRecommendationEngine = () => {
     const likedIdentifiers = new Set<string>()
     const likedArtistTitlePairs = new Set<string>()
 
-    const likedTracks = (fingerprint.taste.liked_tracks as FingerprintLikedTrack[]) ?? []
-    for (const track of likedTracks) {
-      if (!track) {
+    const encodedTracks = fingerprint.taste.liked_tracks as string[]
+    for (const encodedTrack of encodedTracks) {
+      if (!encodedTrack || typeof encodedTrack !== 'string') {
         continue
       }
 
-      // Use artist+title pairs for deduplication against user's liked tracks
-      if (track.artist && track.name) {
-        likedArtistTitlePairs.add(buildArtistTitleKey(track.artist, track.name))
+      try {
+        const track = decodeTrack(encodedTrack)
+
+        // Use artist+title pairs for deduplication against user's liked tracks
+        if (track.artist && track.name) {
+          likedArtistTitlePairs.add(buildArtistTitleKey(track.artist, track.name))
+        }
+      } catch (error) {
+        // Skip invalid encoded tracks
+        console.warn('Failed to decode track:', encodedTrack, error)
       }
     }
 
@@ -105,12 +137,13 @@ export const useRecommendationEngine = () => {
         likedArtistTitlePairs.add(buildArtistTitleKey(recordingArtist, recordingTitle))
       }
 
+      const artist = record['artist-credit']?.[0]?.name ?? 'Unknown artist'
+      const title = record.title ?? 'Unknown title'
+
       recommendations.push({
-        title: record.title ?? 'Unknown title',
-        artist: record['artist-credit']?.[0]?.name ?? 'Unknown artist',
-        genre,
-        isrc,
-        mbid: record.id
+        title,
+        artist,
+        mrid: generateMRID(artist, title)
       })
 
       if (recommendations.length >= TARGET_RECOMMENDATIONS) {

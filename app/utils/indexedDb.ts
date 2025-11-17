@@ -38,6 +38,11 @@ const openDatabase = (): Promise<IDBDatabase> => {
   return request
 }
 
+export interface GenreScore {
+  name: string
+  score: number
+}
+
 export interface MusicFingerprintPayload {
   version: number
   generated_at: string
@@ -48,11 +53,11 @@ export interface MusicFingerprintPayload {
     profileImage: string | null
   }
   taste: {
-    artists: unknown
-    liked_tracks: unknown
-    genres: unknown
+    artists: string[]        // Encoded format: "artist_name::[genre1,genre2]::top"
+    liked_tracks: string[]   // Encoded format: "artist_name::track_name::timestamp"
+    genres: GenreScore[]
   }
-  seen_recommendations: unknown[]
+  seen_recommendations: string[]  // MRIDs: "artist_name::track_name"
 }
 
 export const saveMusicFingerprintToIndexedDB = async (

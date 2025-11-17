@@ -1,12 +1,14 @@
 import { saveMusicFingerprintToIndexedDB, type MusicFingerprintPayload } from '~/utils/indexedDb'
+import type { Recommendation } from '~/composables/useRecommendationEngine'
 
 // Constants
 const LIKE_WEIGHT_DECAY_DAYS = 60
 const LIKE_MIN_WEIGHT = 0.1
 const FOLLOW_WEIGHT = 0.5
 const MAX_ARTIST_BATCH = 50
+const QUICK_RECS_TRACKS_PER_ARTIST = 15
 
-type ProgressStage = 'liked_tracks' | 'followed_artists' | 'top_artists' | 'artist_details'
+type ProgressStage = 'liked_tracks' | 'followed_artists' | 'top_artists' | 'artist_details' | 'quick_recommendations'
 
 interface LikedTrack {
   id: string
@@ -23,21 +25,14 @@ interface LikedTrack {
   added_at?: string
 }
 
-interface NormalizedArtist {
-  id: string
-  name: string
-  genres: string[]
-  isTopArtist?: boolean
-}
-
 interface GenreScore {
   name: string
   score: number
 }
 
 interface FingerprintData {
-  artists: NormalizedArtist[]
-  liked_tracks: LikedTrack[]
+  artists: string[]        // Encoded format
+  liked_tracks: string[]   // Encoded format
   genres: GenreScore[]
 }
 
@@ -55,6 +50,10 @@ const progressPercent = ref<number | null>(null)
 const progressMessage = ref<string | null>(null)
 const errorMessage = ref<string | null>(null)
 const result = ref<FingerprintData | null>(null)
+
+// Quick recommendations pool (progressive)
+const quickRecommendationPool = ref<Recommendation[]>([])
+const quickRecsProgress = ref({ current: 0, total: 0, artist: '' })
 
 export const useFingerprintGenerator = () => {
   const auth = useSpotifyAuth()
@@ -100,7 +99,7 @@ export const useFingerprintGenerator = () => {
   }
 
   const fetchAllLikedTracks = async (authHeader: string) => {
-    const likedTracks: LikedTrack[] = []
+    const likedTracks: string[] = []
     const artistIds = new Set<string>()
     const artistWeights = new Map<string, number>()
 
@@ -136,20 +135,13 @@ export const useFingerprintGenerator = () => {
         }
 
         const weight = computeRecencyWeight(item.added_at)
+        const firstArtist = item.track.artists?.[0]?.name
 
-        likedTracks.push({
-          id: item.track.id,
-          name: item.track.name,
-          artists: item.track.artists ?? [],
-          album: item.track.album
-            ? {
-                id: item.track.album.id,
-                name: item.track.album.name,
-                release_date: item.track.album.release_date
-              }
-            : undefined,
-          added_at: item.added_at
-        })
+        if (firstArtist && item.track.name) {
+          // Encode track to string format
+          const encodedTrack = encodeTrack(firstArtist, item.track.name, item.added_at)
+          likedTracks.push(encodedTrack)
+        }
 
         item.track.artists?.forEach((artist) => {
           if (artist.id) {
@@ -257,7 +249,7 @@ export const useFingerprintGenerator = () => {
     emitProgress('artist_details', 0, 'Resolving artist details…')
 
     const ids = Array.from(artistIds).filter(Boolean)
-    const artists: NormalizedArtist[] = []
+    const artists: string[] = []
     const genreWeights = new Map<string, number>()
     let processed = 0
     let totalWeight = 0
@@ -290,12 +282,9 @@ export const useFingerprintGenerator = () => {
 
         const isTopArtist = topArtistIds.has(artist.id)
 
-        artists.push({
-          id: artist.id,
-          name: artist.name,
-          genres: artist.genres ?? [],
-          ...(isTopArtist && { isTopArtist: true })
-        })
+        // Encode artist to string format
+        const encodedArtist = encodeArtist(artist.name, artist.genres ?? [], isTopArtist)
+        artists.push(encodedArtist)
 
         artist.genres?.forEach((genre) => {
           genreWeights.set(genre, (genreWeights.get(genre) ?? 0) + weight)
@@ -319,6 +308,102 @@ export const useFingerprintGenerator = () => {
     emitProgress('artist_details', 1, 'Artist details fetched successfully.')
 
     return { artists, genres }
+  }
+
+  const buildQuickRecommendationPool = async (authHeader: string) => {
+    // Reset pool
+    quickRecommendationPool.value = []
+    quickRecsProgress.value = { current: 0, total: 20, artist: '' }
+
+    progressStage.value = 'quick_recommendations'
+    progressMessage.value = 'Building quick recommendations from your top artists...'
+
+    try {
+      // Fetch top 20 artists
+      const topArtistsResponse = await $fetch<{
+        items: Array<{ id: string; name: string }>
+      }>('/api/spotify/top-artists', {
+        headers: { Authorization: authHeader },
+        query: { limit: 20, time_range: 'medium_term' }
+      })
+
+      const topArtists = topArtistsResponse.items
+      quickRecsProgress.value.total = topArtists.length
+
+      console.log(`🎵 Starting quick recommendation pool with ${topArtists.length} top artists`)
+
+      // Process each artist sequentially
+      for (const [index, spotifyArtist] of topArtists.entries()) {
+        quickRecsProgress.value.current = index + 1
+        quickRecsProgress.value.artist = spotifyArtist.name
+        progressMessage.value = `Processing: ${spotifyArtist.name} (${index + 1}/${topArtists.length})`
+
+        try {
+          // Search MusicBrainz for artist MBID
+          const searchResponse = await $fetch<{
+            artists: Array<{ id: string; name: string; score?: number }>
+          }>('/api/musicbrainz/search-artist', {
+            query: { name: spotifyArtist.name, limit: 1 }
+          })
+
+          if (!searchResponse.artists || searchResponse.artists.length === 0) {
+            console.warn(`⚠️ No MusicBrainz match for ${spotifyArtist.name}`)
+            continue
+          }
+
+          const mbArtist = searchResponse.artists[0]
+          console.log(`✓ Found MBID for ${spotifyArtist.name}: ${mbArtist.id}`)
+
+          // Fetch recordings for this artist
+          console.log(`  Fetching recordings from /api/musicbrainz/artist-recordings with MBID: ${mbArtist.id}`)
+
+          const recordingsResponse = await $fetch<{
+            recordings: Array<{
+              id: string
+              title: string
+              'artist-credit'?: Array<{ name?: string }>
+              isrcs?: string[]
+            }>
+          }>('/api/musicbrainz/artist-recordings', {
+            query: { mbid: mbArtist.id, limit: QUICK_RECS_TRACKS_PER_ARTIST }
+          })
+
+          console.log(`  Received response:`, recordingsResponse)
+
+          const recordings = recordingsResponse.recordings || []
+          console.log(`  Recordings array length: ${recordings.length}`)
+
+          // Add to pool
+          const newRecommendations: Recommendation[] = []
+          for (const recording of recordings) {
+            const artist = recording['artist-credit']?.[0]?.name || spotifyArtist.name
+            const title = recording.title
+
+            const recommendation: Recommendation = {
+              title,
+              artist,
+              mrid: generateMRID(artist, title)
+            }
+
+            quickRecommendationPool.value.push(recommendation)
+            newRecommendations.push(recommendation)
+          }
+
+          // Log pool update with plain objects (not Vue proxies)
+          console.log(`📊 Quick Rec Pool Updated (${quickRecommendationPool.value.length} tracks):`)
+          console.log(`  Artist: ${spotifyArtist.name}`)
+          console.log(`  Added: ${recordings.length} tracks`)
+          console.log(`  Pool size: ${quickRecommendationPool.value.length}`)
+          console.log(`  Pool:`, JSON.parse(JSON.stringify(quickRecommendationPool.value)))
+        } catch (error) {
+          console.error(`Error processing ${spotifyArtist.name}:`, error)
+        }
+      }
+
+      console.log(`✅ Quick recommendation pool complete: ${quickRecommendationPool.value.length} total tracks`)
+    } catch (error) {
+      console.error('Failed to build quick recommendation pool:', error)
+    }
   }
 
   const generateFingerprint = async (force = false) => {
@@ -345,6 +430,9 @@ export const useFingerprintGenerator = () => {
       const profile = await $fetch<SpotifyProfile>('/api/spotify-profile', {
         headers: { Authorization: authHeader }
       })
+
+      // Step 0: Build quick recommendation pool FIRST (progressive)
+      await buildQuickRecommendationPool(authHeader)
 
       // Step 1: Fetch all liked tracks
       const { likedTracks, artistIds, artistWeights } = await fetchAllLikedTracks(authHeader)
@@ -406,6 +494,17 @@ export const useFingerprintGenerator = () => {
     }
   }
 
+  const rebuildQuickRecommendations = async () => {
+    const authHeader = await auth.getAuthorizationHeader()
+
+    if (!authHeader) {
+      errorMessage.value = 'Missing Spotify access token. Please log in again.'
+      return
+    }
+
+    await buildQuickRecommendationPool(authHeader)
+  }
+
   return {
     // State
     isLoading: readonly(isLoading),
@@ -415,7 +514,12 @@ export const useFingerprintGenerator = () => {
     errorMessage: readonly(errorMessage),
     result: readonly(result),
 
+    // Quick recommendations
+    quickRecommendationPool: readonly(quickRecommendationPool),
+    quickRecsProgress: readonly(quickRecsProgress),
+
     // Actions
-    generateFingerprint
+    generateFingerprint,
+    rebuildQuickRecommendations
   }
 }

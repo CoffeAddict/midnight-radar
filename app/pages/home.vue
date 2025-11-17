@@ -23,6 +23,14 @@
           >
             {{ isLoading ? 'Refreshing…' : 'Force refresh' }}
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            :disabled="isLoading || progressStage === 'quick_recommendations'"
+            @click="rebuildQuickRecommendations()"
+          >
+            {{ progressStage === 'quick_recommendations' ? 'Building…' : 'Rebuild Quick Recs' }}
+          </Button>
         </div>
         <Alert v-if="progressMessage">
           <AlertDescription>
@@ -30,6 +38,34 @@
             <span v-if="progressPercent !== null">({{ progressPercent }}%)</span>
           </AlertDescription>
         </Alert>
+
+        <!-- Quick Recommendation Pool Progress -->
+        <Card v-if="quickRecsProgress.total > 0 && isLoading" class="border-primary">
+          <CardContent class="pt-6">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between text-sm">
+                <span class="font-medium">Quick Recommendations Pool</span>
+                <span class="text-muted-foreground">
+                  {{ quickRecsProgress.current }}/{{ quickRecsProgress.total }} artists
+                </span>
+              </div>
+              <div v-if="quickRecsProgress.artist" class="text-sm text-muted-foreground">
+                Processing: <span class="font-medium text-foreground">{{ quickRecsProgress.artist }}</span>
+              </div>
+              <div class="text-sm">
+                <span class="font-semibold text-primary">{{ quickRecommendationPool.length }} tracks</span>
+                <span class="text-muted-foreground"> in pool</span>
+              </div>
+              <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
+                <div
+                  class="h-full bg-primary transition-all duration-300"
+                  :style="{ width: `${(quickRecsProgress.current / quickRecsProgress.total) * 100}%` }"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Alert v-if="errorMessage" variant="destructive">
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{{ errorMessage }}</AlertDescription>
@@ -112,7 +148,7 @@
                 </div>
                 <div v-if="currentRecommendation" class="space-y-1">
                   <h2 class="text-xl font-semibold">
-                    {{ currentRecommendation.title }} ({{ currentRecommendation.genre }})
+                    {{ currentRecommendation.title }}
                   </h2>
                   <p class="text-muted-foreground">{{ currentRecommendation.artist }}</p>
                 </div>
@@ -167,7 +203,10 @@ const {
   progressMessage,
   errorMessage,
   result,
-  generateFingerprint
+  quickRecommendationPool,
+  quickRecsProgress,
+  generateFingerprint,
+  rebuildQuickRecommendations
 } = fingerprint
 
 const profile = ref<SpotifyProfile | null>(null)
